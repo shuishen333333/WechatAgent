@@ -15,8 +15,15 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
     // Reject the image itself on binding/integrity/format failures too. Never
     // admit its bytes, and never leave that bad input at the head of the chat.
     const safeCode=/^(?:IMAGE_[A-Z_]+|INVALID_IMAGE_DATA|MODEL_IMAGE_INPUT_UNSUPPORTED)$/.test(error.message)?error.message:'IMAGE_READER_NOT_READY';
-    onUnavailable({id:image.id,index,code:error.imageError??(error.name==='TimeoutError'||error.name==='AbortError'?'IMAGE_PROCESS_TIMEOUT':safeCode)});
-    return {type:'text',text:`[本轮附图 I${index+1} 读取失败，未提供画面；不要猜测内容。其余成功附图仍可使用。]`};
+    const code=error.imageError??(error.name==='TimeoutError'||error.name==='AbortError'?'IMAGE_PROCESS_TIMEOUT':safeCode);
+    onUnavailable({id:image.id,index,code});
+    // Tell the model why (not the raw code), so it can ask for the one resend that works.
+    const advice=code==='IMAGE_ONLY_THUMBNAIL'||code==='IMAGE_LOCAL_COPY_UNAVAILABLE'
+      ? '本机只有缩略图，画面看不清；可以请对方把同一张图用「文件」方式重发，或先在电脑微信里点开原图再发'
+      : code==='IMAGE_FILE_NOT_DOWNLOADED'
+        ? '电脑微信还没下载这个文件，可以请对方重发一次'
+        : '';
+    return {type:'text',text:`[本轮附图 I${index+1} 读取失败，未提供画面；不要猜测内容。${advice?advice+'。':''}其余成功附图仍可使用。]`};
   };
   let info;
   try{info=await boundedTask(s=>llm.resolveModelInfo(provider,model,s),{timeoutMs,signal});}
