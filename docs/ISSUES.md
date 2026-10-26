@@ -2,8 +2,13 @@
 
 > 来源：2026-10-25 用户口述（编号沿用用户原话，第 7 条未提及）。
 > 每条给出：现状证据 / 初步方案 / 改动面。**都还没动手**，等确认优先级。
+>
+> **2026-10-26 更新**：第 1 条（禁用/启用不丢配置）**取消，不做**。第 3 条已定位到确切报错
+> `IMAGE_STICKER_LOCAL_COPY_UNAVAILABLE`，是配置开关问题、不用改代码。其余保留。
 
-## 1. 好友与群聊要能随时"禁用/启用"，且不丢配置
+## 1. ~~好友与群聊要能随时"禁用/启用"，且不丢配置~~ —— 2026-10-26 取消
+
+> 用户确认不再需要此功能，本节仅留档。
 
 **现状**：唯一开关是 `wechat.whitelist.private` / `wechat.whitelist.groups`（数组）。
 移除即等于"这个聊天不存在"，UI 里看不到，重新加入后要重新配一遍（人格、技能、回复模式、表情、上下文等都以 `private:wxid` / `group:id` 为 key 存在 `chatModes`、`dshAccess`、`stickers.chats`、`context.chats`、`proactive.chats`、`persona.chats`、`memberMemory.chats` 等字典里）。
@@ -34,7 +39,17 @@
 - **B 手机导出**：`我 → 表情 → 我的表情 → 保存到相册`，传到电脑后「添加表情包」（一次 ≤20 张，文件名即默认描述）。
 - **C 离线解密（研究性）**：把主号登进 4.1.10.27 抓一次库密钥 → 用 `nt_decrypt` 解 `db_storage\emoticon\emoticon.db` 拿每条表情的 aeskey → AES-CBC 解密 `Persist`。可行性未验证（收藏表情的 aeskey 是否就存在该库里）。
 
-**现状缺陷**：池子里已有 5 条 `attempts: 3` 的失败记录，疑似就是 `allowStickerCdn=false` 导致。
+**2026-10-26 已定位（不用改代码）**：服务已跑起来，白名单里有 2 个好友 + 2 个群，好友确实在发表情，
+但池子 `entries: 0`、`pending: 12`。`state/logs/reader.stderr.log` 里每条都是：
+
+```
+Image resolution failed: IMAGE_STICKER_LOCAL_COPY_UNAVAILABLE exceptionType=RuntimeError
+```
+
+含义：本机缓存是加密的、拿不到可校验的明文，必须回退到"从腾讯 CDN 下载"，而
+`wechat.media.allowStickerCdn = false`，于是每次都在这里断掉，重试 3 次后进 `pending` 等死。
+
+**解法**：设置 → 图片与表情包 → 勾选「允许从腾讯下载缺失的表情包」→ 保存 → 重启服务。
 
 ## 4. 发原图 / 以文件发送，仍然拿不到原图
 
