@@ -43,19 +43,23 @@
 5. **路径里有弯引号**：`D:\zlh‘s program\` 中 `‘` 是 U+2018，手打成 `'` 就找不到目录。
 6. **表情缓存是加密的**：`business\emoticon\Persist` 下 287 个文件全部是 16 字节对齐的 AES 密文，文件名是 md5，没有扩展名，拷出来不是 gif。
 7. **收集表情依赖 CDN 开关**：`wechat.media.allowStickerCdn` 目前是 `false`，池子里已有 5 条 `attempts: 3` 的失败记录，与此吻合。
+8. **改脚本要同时改"安装目录"和"运行目录"**（2026-10-26 踩坑）：程序启动时会把
+   `app\resources\project\*` **覆盖**到 `data\workspace\*`。只改运行目录的话，下一次
+   启动（甚至只是重启服务）就被原版覆盖回去，表现为"补丁突然失效"。正确做法：
+   两边一起改，改完再重启服务。本次回滚就发生在 19:47（两个脚本 mtime 同时变成原版大小）。
 
 ## 5. 配置要点
 
 - `runtime.sender = wechat-hook`，`hook.expectedVersion = 4.1.10.27`，`hook.baseUrl = http://127.0.0.1:30001`
 - `ports`：weflow 5031 / onebot 11229 / adapter 8766 / dshPlugin 11230
-- `media.allowStickerCdn = false`（待开）
+- `media.allowStickerCdn = true`（已开，表情收集正常）
 - `stickers.collectEnabled = true`，`stickers.enabled = true`
-- `whitelist.private = []`、`whitelist.groups = []`（尚未绑定任何聊天）
+- `whitelist.private = [447040987, 1306012985]`、`whitelist.groups = [321691740, 901039569]`
 
 ## 6. 下一步
 
-1. 在 DSH 里安装本机插件 `D:\zlh‘s program\data\workspace\packages\dsh-social-bridge-plugin`，启用后从托盘完整退出并重开 DSH。
-2. 回到 WeChatAgent 点「启动服务」，确认 11230 端口起来。
-3. 绑定允许的聊天（主号 / 目标群），再考虑表情与人格。
+1. 需求 #2 中文化（能力与权限页英文文案）。
+2. 需求 #6 好友备注。
+3. 需求 #5 聊天改人格（最重，需审计与回滚）。
 
 详细需求清单见 [ISSUES.md](ISSUES.md)。
