@@ -4,9 +4,11 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import re
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # Embedded Python uses an isolated _pth file and does not add the script directory.
@@ -37,6 +39,60 @@ from wechat_image_normalize import normalize_image
 
 # Below this longest side the only local copy is WeChat's preview thumbnail.
 THUMBNAIL_MAX_SIDE = 256
+# Pictures sent as WeChat *files* keep their original bytes on disk, but only
+# once the desktop client has downloaded the file itself.
+MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
+SAFE_FILE_NAME = re.compile(r'^[^\\/:*?"<>|\x00-\x1f\x7f]{1,180}$')
+
+
+def resolve_file_image(descriptor, account):
+    """Read an image that arrived as a WeChat file message (no encryption, no thumb)."""
+    name = descriptor.get('name') or ''
+    size = descriptor.get('size')
+    md5 = (descriptor.get('md5') or '').lower()
+    if not SAFE_FILE_NAME.fullmatch(name) or name != os.path.basename(name):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    deadline = time.monotonic() + 3
+    visited = 0
+    for folder in (account / 'msg' / 'file', account / 'FileStorage' / 'File'):
+        if not folder.is_dir():
+            continue
+        stack = [(folder, 0)]
+        while stack and visited < 4000 and time.monotonic() < deadline:
+            current, depth = stack.pop()
+            try:
+                entries = list(os.scandir(current))
+            except OSError:
+                continue
+            for entry in entries:
+                visited += 1
+                if visited > 4000 or time.monotonic() >= deadline:
+                    break
+                try:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        if depth < 4:
+                            stack.append((pathlib.Path(entry.path), depth + 1))
+                        continue
+                    if entry.name.casefold() != name.casefold():
+                        continue
+                    if entry.stat().st_size != size:
+                        continue
+                    with open(entry.path, 'rb') as stream:
+                        raw = stream.read(MAX_IMAGE_FILE_BYTES + 1)
+                except OSError:
+                    continue
+                if len(raw) != size:
+                    continue
+                if md5 and hashlib.md5(raw).hexdigest() != md5:
+                    continue
+                return normalize_image(raw)
+    raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
 
 
 def resolve(descriptor):
@@ -44,6 +100,8 @@ def resolve(descriptor):
     talker = descriptor['talker']
     if not reader.image_talker_allowed(talker):
         raise RuntimeError('IMAGE_CONVERSATION_NOT_ALLOWED')
+    if descriptor.get('kind') == 'file-image':
+        return resolve_file_image(descriptor, reader.account)
     row = reader.image_row(talker, descriptor)
     content = row['imageXml']
     if row['localType'] == 47:

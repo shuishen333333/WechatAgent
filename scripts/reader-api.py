@@ -38,6 +38,11 @@ from wechat_sticker_manager import StickerManager, ManagerError
 from wechat_meme_library import import_library_sticker,inspect_library_sticker
 from wechat_group_bindings import GroupBindings, group_username
 
+# Pictures sent as WeChat file messages keep their original bytes once the
+# desktop client has downloaded the file; treat those as ordinary images.
+IMAGE_FILE_NAME = re.compile(r'\.(?:jpg|jpeg|png|gif|webp|bmp)$', re.I)
+MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
+
 PAT_TYPE = (62 << 32) | 49
 
 
@@ -457,6 +462,34 @@ class Reader:
                 print('Sticker collection unavailable; incoming message retained.',flush=True)
         return image_id
 
+    def register_file_image(self, talker, payload):
+        """Register a picture that arrived as a file message, so it reuses the image pipeline."""
+        if not self.image_talker_allowed(talker):
+            return None
+        info = payload.get('file') or {}
+        name = info.get('name') or ''
+        size = info.get('size')
+        if not IMAGE_FILE_NAME.search(name) or not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
+            return None
+        rawid = payload.get('rawid') or ''
+        if not re.fullmatch(r'[a-f0-9]{64}', rawid):
+            return None
+        image_id = hashlib.sha256(json.dumps([self.own_wxid, talker, rawid, 'file-image']).encode()).hexdigest()
+        descriptor = {'talker': talker, 'kind': 'file-image', 'name': name, 'size': size,
+            'md5': (info.get('md5') or '').lower(), 'createTime': payload.get('timestamp', 0),
+            'account': self.account.name, 'sender': payload.get('talkerId')}
+        with self.lock:
+            self.image_index[image_id] = descriptor
+            for expired in list(self.image_index)[:-1000]:
+                self.image_index.pop(expired, None)
+                cache = self.image_dir / (expired + '.json')
+                if re.fullmatch(r'[a-f0-9]{64}', expired) and cache.is_file():
+                    cache.unlink()
+            temp = self.image_index_file.with_suffix('.tmp')
+            temp.write_text(json.dumps(self.image_index), encoding='utf-8')
+            temp.replace(self.image_index_file)
+        return image_id
+
     def resolve_image(self, image_id):
         prepared=getattr(self,'meme_send_resources',None)
         if prepared:
@@ -769,10 +802,18 @@ class Reader:
                             continue
                         if payload['type'] == FILE_TYPE:
                             reference = self.files.remember(payload, 'wechat:' + ('group:' if '@chatroom' in talker else 'private:') + self.conversation_id(talker))
-                            if not reference:
+                            if reference:
+                                payload['file'] = reference
+                            file_image = self.register_file_image(talker, payload)
+                            if file_image:
+                                # A picture sent as a file keeps its original bytes, so route it
+                                # through the image pipeline instead of the assistant-only file lane.
+                                payload['image'] = {'id': file_image}
+                                payload['type'] = 3
+                                payload.pop('file', None)
+                            elif not reference:
                                 continue
-                            payload['file'] = reference
-                        if payload['type'] in (3, 47):
+                        elif payload['type'] in (3, 47):
                             image_id = self.register_image(talker, payload)
                             if not image_id:
                                 continue

@@ -73,8 +73,17 @@ Image resolution failed: IMAGE_STICKER_LOCAL_COPY_UNAVAILABLE exceptionType=Runt
 
 **还差**：
 - 图片通道要拿真原图，只能靠微信自己下载（在机器人那个微信窗口点开一次），或者逆微信 4.x 的
-  CDN 协议直连下载（`cdnmidimgurl` 是二进制块不是 URL，风险高，暂不做）；
-- 文件通道需要放开闲聊模式下的图片类文件并挂成附图（待做）。
+  CDN 协议直连下载（`cdnmidimgurl` 是二进制块不是 URL，风险高，暂不做）。
+
+**2026-10-26 追加：文件通道已打通**
+- `reader-api.py`：文件消息若是图片（jpg/jpeg/png/gif/webp/bmp，≤20 MB），在 `poll()` 里
+  注册成一个 image（`kind: 'file-image'`），载荷改写成普通图片事件，于是复用整条图片管线，
+  不需要动适配器和社交引擎；
+- `resolve-wechat-image.py`：`kind == 'file-image'` 时直接去 `msg/file` 与
+  `FileStorage/File` 里按 **文件名 + 大小 + md5** 校验后读取原始文件，不经过任何加密缓存；
+- 实测：`IMG_5940.JPG`（452 KB）解析为 **720×1280**，而同一台机器上图片通道只有 117×210 的缩略图；
+- 文件没下载时抛 `IMAGE_FILE_NOT_DOWNLOADED`（"电脑微信尚无可验证的完整文件"）。
+
 
 
 ## 5. 聊天反馈：能在聊天里修改自己的人格
