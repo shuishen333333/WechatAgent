@@ -35,6 +35,10 @@ except (ImportError, OSError) as error:
 from wechat_image_normalize import normalize_image
 
 
+# Below this longest side the only local copy is WeChat's preview thumbnail.
+THUMBNAIL_MAX_SIDE = 256
+
+
 def resolve(descriptor):
     reader = reader_api.Reader(ROOT, metadata_readonly=True)
     talker = descriptor['talker']
@@ -81,23 +85,40 @@ def resolve(descriptor):
     attach = reader.account / 'msg' / 'attach' / hashlib.md5(talker.encode()).hexdigest()
     # Resource IDs bind files to the exact server message. Local IDs alone are
     # deliberately insufficient because they collide between shards/chats.
+    # Highest fidelity first: WeChat keeps *_h.dat (original) only when the full
+    # image was downloaded; .dat is the compressed copy and _t.dat the thumbnail.
+    order = ('_h.dat', '.dat', '_t.dat')
+    best = None
     for file_id in ids:
         candidates = []
         if attach.is_dir():
             for month in sorted(attach.iterdir(), reverse=True):
                 image_dir = month / 'Img'
-                for suffix in ('.dat', '_h.dat', '_t.dat'):
+                for suffix in order:
                     file = image_dir / (file_id + suffix)
                     if file.is_file() and file.stat().st_size <= media.MAX_EMBED_SIZE:
-                        candidates.append(file)
-        for file in candidates:
+                        candidates.append((order.index(suffix), file))
+        candidates.sort(key=lambda item: item[0])
+        for _, file in candidates:
             for xor, aes in keys:
                 decoded = media.decode_wechat_v2(str(file), xor, aes)
-                if decoded:
-                    try:
-                        return normalize_image(decoded[0])
-                    except Exception:
-                        continue
+                if not decoded:
+                    continue
+                try:
+                    payload = normalize_image(decoded[0])
+                except Exception:
+                    continue
+                area = int(payload.get('width') or 0) * int(payload.get('height') or 0)
+                if best is None or area > best[0]:
+                    best = (area, payload)
+                break
+    if best is not None:
+        width, height = int(best[1].get('width') or 0), int(best[1].get('height') or 0)
+        # A thumbnail alone is not the picture the sender meant; report it
+        # instead of handing the model an unreadable 100px preview.
+        if max(width, height) < THUMBNAIL_MAX_SIDE:
+            raise RuntimeError('IMAGE_ONLY_THUMBNAIL')
+        return best[1]
     raise RuntimeError('IMAGE_LOCAL_COPY_UNAVAILABLE')
 
 

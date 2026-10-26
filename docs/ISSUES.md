@@ -53,20 +53,29 @@ Image resolution failed: IMAGE_STICKER_LOCAL_COPY_UNAVAILABLE exceptionType=Runt
 
 ## 4. 发原图 / 以文件发送，仍然拿不到原图
 
-**证据**：`scripts/resolve-wechat-image.py:89`
+**2026-10-26 实测（已修一半）**：
 
-```python
-for suffix in ('.dat', '_h.dat', '_t.dat'):
-```
+1. 用真实消息验证，`GET /api/v1/images/<id>` 返回的是 **117×210 / 6.7 KB**，就是微信的缩略图。
+2. 查消息 XML 原文：`cdnthumbwidth=117 cdnthumbheight=210`、`cdnhdwidth=0 cdnhdheight=0`、`length=61800`。
+   也就是说**对方那条消息本身就没有高清版**，本机也只缓存了缩略图——磁盘上根本不存在
+   `cc82c877…`（61.8 KB 那张）的任何文件，全盘搜不到。
+3. 所以"点原图、发文件都拿不到"有两层原因：
+   - 图片通道：微信 4.x 桌面端**不会替你下载**聊天图片，只有你在电脑微信里点开那张图才会把
+     `.dat`（压缩图）/`_h.dat`（原图）落盘；仓库 `docs/IMAGE_INPUT.md` 也是这么写的。
+   - 文件通道：`social-engine.js:143` 在闲聊模式下**直接丢弃带 files 的消息**
+     （`file_ignored_in_social_mode`），所以"以文件发送"根本没进模型。
 
-解析顺序是 **`.dat`（压缩图）优先**，`_h.dat`（高清）排第二，`_t.dat`（缩略图）兜底。也就是说只要 `.dat` 存在，就永远拿不到 `_h.dat`。
+**已改**：`scripts/resolve-wechat-image.py`
+- 解析顺序改为 `_h.dat` → `.dat` → `_t.dat`，并且**取所有候选里像素面积最大的那份**，
+  不再"先到先得"；
+- 只剩缩略图（最长边 < 256）时抛 `IMAGE_ONLY_THUMBNAIL`，不再把 117×210 的图当原图喂给模型，
+  机器人可以如实说"只拿到缩略图"。
 
-**初步方案**：
-- 优先 `_h.dat`，再回退 `.dat` / `_t.dat`；
-- 或按消息里的 `hd`/`cdnbig` 标记与文件体积判断；
-- "以文件形式发送"的图片走的是 `msg/file` 路径而不是 image 通道，需要在媒体解析里补一条 file→image 的分支。
+**还差**：
+- 图片通道要拿真原图，只能靠微信自己下载（在机器人那个微信窗口点开一次），或者逆微信 4.x 的
+  CDN 协议直连下载（`cdnmidimgurl` 是二进制块不是 URL，风险高，暂不做）；
+- 文件通道需要放开闲聊模式下的图片类文件并挂成附图（待做）。
 
-**改动面**：`resolve-wechat-image.py` + `wechat_media.py`（+ 可能 `image-input.mjs`）。小。
 
 ## 5. 聊天反馈：能在聊天里修改自己的人格
 
