@@ -58,13 +58,27 @@ def resolve_file_image(descriptor, account):
         raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
     if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
         raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    deadline = time.monotonic() + 3
+    roots = [account / 'msg' / 'file', account / 'FileStorage' / 'File']
+    # WeChat files land in <root>/<YYYY-MM>/<name>; search newest months first so a
+    # busy history cannot starve the scan before it reaches today's file.
+    folders = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        folders.append((root, 1))
+        try:
+            months = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+        except OSError:
+            months = []
+        for month in months[:12]:
+            folders.append((month, 1))
+    deadline = time.monotonic() + 6
     visited = 0
-    for folder in (account / 'msg' / 'file', account / 'FileStorage' / 'File'):
+    for folder, depth_limit in folders + [(root, 4) for root in roots if root.is_dir()]:
         if not folder.is_dir():
             continue
         stack = [(folder, 0)]
-        while stack and visited < 4000 and time.monotonic() < deadline:
+        while stack and visited < 20000 and time.monotonic() < deadline:
             current, depth = stack.pop()
             try:
                 entries = list(os.scandir(current))
@@ -72,13 +86,13 @@ def resolve_file_image(descriptor, account):
                 continue
             for entry in entries:
                 visited += 1
-                if visited > 4000 or time.monotonic() >= deadline:
+                if visited > 20000 or time.monotonic() >= deadline:
                     break
                 try:
                     if entry.is_symlink():
                         continue
                     if entry.is_dir(follow_symlinks=False):
-                        if depth < 4:
+                        if depth < depth_limit:
                             stack.append((pathlib.Path(entry.path), depth + 1))
                         continue
                     if entry.name.casefold() != name.casefold():
