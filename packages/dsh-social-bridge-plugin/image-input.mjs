@@ -32,7 +32,7 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
   const io=JSON.parse(fs.readFileSync(path.join(root,'state/wechat-io-config.json'),'utf8').replace(/^\uFEFF/,''));
   const base=new URL(io.reader_base_url);
   if (base.protocol!=='http:' || base.hostname!=='127.0.0.1' || base.username || base.password || base.pathname!=='/' || base.search || base.hash) throw new Error('IMAGE_READER_LOOPBACK_REQUIRED');
-  const blocks=new Array(images.length);let next=0;
+  const blocks=new Array(images.length);let next=0;const lowRes=[];
   async function prepare(image,index) {
     try {
     return await boundedTask(async taskSignal=>{
@@ -49,6 +49,7 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
     const data=Buffer.from(content.b64,'base64');
     if (!data.length || data.length>768*1024 || data.toString('base64')!==content.b64 || crypto.createHash('sha256').update(data).digest('hex')!==content.sha256) throw new Error('IMAGE_INTEGRITY_FAILED');
     const attachment=await attachments.saveImage({data,mediaType:content.mime,name:'wechat-image-'+image.id.slice(0,12)});
+    if(content.thumbnail===true)lowRes.push(index);
     return {type:'image',attachment};
     },{timeoutMs:12000,signal});
     } catch(error) {
@@ -58,6 +59,7 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
   await Promise.all(Array.from({length:Math.min(2,images.length)},async()=>{
     while(next<images.length){const index=next++;blocks[index]=await prepare(images[index],index);}
   }));
+  if(lowRes.length)blocks.push({type:'text',text:`[本轮附图 ${lowRes.map(index=>'I'+(index+1)).join('、')} 只有低分辨率缩略图，细节和文字可能看不清；能确定的照实说，看不清的地方不要猜，可以请对方用「文件」方式重发原图。]`});
   return blocks;
 }
 

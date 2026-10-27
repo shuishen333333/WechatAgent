@@ -219,10 +219,10 @@ def resolve(descriptor):
                 break
     if best is not None:
         width, height = int(best[1].get('width') or 0), int(best[1].get('height') or 0)
-        # A thumbnail alone is not the picture the sender meant; report it
-        # instead of handing the model an unreadable 100px preview.
+        # A thumbnail is still better than nothing for "does this look ok?" —
+        # but the model must know it is degraded, so flag it instead of failing.
         if max(width, height) < THUMBNAIL_MAX_SIDE:
-            raise RuntimeError('IMAGE_ONLY_THUMBNAIL')
+            best[1]['thumbnail'] = True
         return best[1]
     raise RuntimeError('IMAGE_LOCAL_COPY_UNAVAILABLE')
 
