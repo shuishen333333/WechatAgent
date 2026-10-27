@@ -209,15 +209,6 @@ export class SocialEngine {
       }).catch(error=>{this.log('[Assistant] '+key+' control_failed code='+(error.code??'unavailable'));if(!this.stopped&&(!this.connection||this.connection.current(controlEpoch))&&this.assistantAllowed(key,message))void this.send(message,'助手控制暂未完成：'+({ASSISTANT_ADMIN_REQUIRED:'此操作仅允许指定管理员。',ASSISTANT_TASK_NOT_ALLOWED:'只能操作自己发起的任务。',ASSISTANT_APPROVAL_EXPIRED:'审批已过期或已处理，请重新查看任务状态。',SESSION_GROUP_SESSION_BUSY:'当前仍有任务，请完成或取消后再切换工作区。'}[error.code]??'请查看任务状态，确认 DSH 已连接后重试。'),{deliveryId}).catch(()=>{});});return;
     }
     this.buffer.append({ ...message,work_mode:this.workModeFor(key),assistant_chat_only:this.assistantChatOnly,direct_mention: direct });
-    // Attachments take a while to decode; say we are reading them, then answer once.
-    if (direct && this.readAckText && (message.files?.length || message.images?.length)) {
-      const now = Date.now(), last = this.readAckAt.get(key) ?? 0;
-      if (now - last > 8000) {
-        this.readAckAt.set(key, now);
-        const ackId = crypto.createHash('sha256').update(key+'\0read-ack\0'+message.message_id).digest('hex');
-        void boundedTask(()=>this.send(message, this.readAckText, {deliveryId: ackId}),{timeoutMs:8000}).catch(()=>{});
-      }
-    }
     if(message.interaction==='pat' && !this.patWaitUntil.has(key))this.patWaitUntil.set(key,Date.now()+this.batchMs);
     if (message.kind === 'group' && this.modeFor(key) === 'mention' && !direct) return;
     this.dirty.add(key);
@@ -261,6 +252,16 @@ export class SocialEngine {
       let savedRequest=this.buffer.pendingRequests.get(key);
       const workMode=this.workModeFor(key);
       const unread=this.unreadFor(key,20);
+      // Merge window is over: acknowledge attachments now, right before the long
+      // model/tool work, so the sender is not left in silence.
+      if (direct && this.readAckText && unread.some(row=>row.files?.length || row.images?.length)) {
+        const now = Date.now(), last = this.readAckAt.get(key) ?? 0;
+        if (now - last > 8000) {
+          this.readAckAt.set(key, now);
+          const ackId = crypto.createHash('sha256').update(key+'\0read-ack\0'+(unread.at(-1)?.id ?? '')).digest('hex');
+          void boundedTask(()=>this.send(message, this.readAckText, {deliveryId: ackId}),{timeoutMs:8000}).catch(()=>{});
+        }
+      }
 
       if(savedRequest&&!savedRequest.rowIds.every(id=>unread.some(row=>row.id===id))){this.buffer.forgetRequest(key);savedRequest=null;}
       const rows = [];
