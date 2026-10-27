@@ -121,7 +121,7 @@ export class SocialEngine {
     this.pendingDirect = new Set(); this.sentAt = new Map();
     // Short "reading it" acknowledgement so attachments are not met with silence.
     this.readAckAt = new Map(); this.readAckText = typeof readAckText === 'string' ? readAckText : '';
-    this.batchStarted = new Map();
+    this.batchStarted = new Map(); this.awakeUntil = new Map();
     this.decisions = new Map();
     this.stickerSelect=stickerSelect;
     this.deliveryRetry={busyDelayMs:500,busyTimeoutMs:30000,maxBusyRetries:6,receiptDelayMs:1500,maxReceiptChecks:2,mediaDeadlineMs:45000,mediaCallTimeoutMs:10000,...deliveryRetry};
@@ -211,14 +211,20 @@ export class SocialEngine {
     }
     this.buffer.append({ ...message,work_mode:this.workModeFor(key),assistant_chat_only:this.assistantChatOnly,direct_mention: direct });
     if(message.interaction==='pat' && !this.patWaitUntil.has(key))this.patWaitUntil.set(key,Date.now()+this.batchMs);
-    if (message.kind === 'group' && this.modeFor(key) === 'mention' && !direct) return;
+    // Both wake styles (@ and wake word) arrive as direct. In "mention" groups the
+    // messages that follow a wake-up (the picture, then the instruction) carry no
+    // @, so keep the conversation awake for a while instead of dropping them.
+    const assistantMode = this.workModeFor(key)==='assistant';
+    const windowMs = assistantMode ? this.assistantBatchMs : this.batchMs;
+    const awake = direct || (this.awakeUntil.get(key) ?? 0) > Date.now();
+    if (message.kind === 'group' && this.modeFor(key) === 'mention' && !awake) return;
+    if (direct) this.awakeUntil.set(key, Date.now() + Math.max(windowMs * 2, 15000));
     this.dirty.add(key);
     if (this.running.has(key)) { this.pendingDirect.add(key); return; }
     // Both modes now merge: private and group alike wait for a quiet gap, so a
     // picture followed by its instruction is handled as one turn.
-    const assistantMode = this.workModeFor(key)==='assistant';
     if (assistantMode) this.pendingDirect.add(key);
-    this.#queueRun(key, message, direct, assistantMode ? this.assistantBatchMs : this.batchMs);
+    this.#queueRun(key, message, direct || awake, windowMs);
   }
 
   #queueRun(key, message, direct, windowMs) {
