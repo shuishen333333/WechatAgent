@@ -47,6 +47,10 @@
    `app\resources\project\*` **覆盖**到 `data\workspace\*`。只改运行目录的话，下一次
    启动（甚至只是重启服务）就被原版覆盖回去，表现为"补丁突然失效"。正确做法：
    两边一起改，改完再重启服务。本次回滚就发生在 19:47（两个脚本 mtime 同时变成原版大小）。
+9. **程序更新/修复安装会把 `app\resources` 整包换掉**（2026-10-27 复现）：
+   `app\resources\{project,runtime,vendor}` 目录时间变成更新时间，补丁文件全部回到发布版，
+   运行目录随后被同步覆盖。恢复：仓库里执行 `pwsh -File scripts\apply-local-patches.ps1`，
+   再重启服务。**每次更新后都要跑一次。**
 
 ## 5. 配置要点
 
