@@ -4,9 +4,11 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import pathlib
 import re
 import sys
+import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -36,11 +38,91 @@ except (ImportError, OSError) as error:
 from wechat_image_normalize import normalize_image, decode_image_source
 
 
+# Pictures sent as WeChat *files* keep their original bytes on disk, but only
+# once the desktop client has downloaded the file itself.
+MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
+SAFE_FILE_NAME = re.compile(r'^[^\\/:*?"<>|\x00-\x1f\x7f]{1,180}$')
+
+# iPhones hand over HEIC, which Pillow cannot decode without an extra wheel.
+# Windows already ships an HEIF decoder, so reuse it through WIC instead.
+HEIC_SCRIPT = r'''
+param([string]$In,[string]$Out,[int]$MaxSide)
+Add-Type -AssemblyName PresentationCore | Out-Null
+$dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create([Uri]$In, 'None', 'OnLoad')
+$frame = $dec.Frames[0]
+$scale = 1.0
+if($frame.PixelWidth -gt $MaxSide){ $scale = $MaxSide / $frame.PixelWidth }
+$target = $frame
+if($scale -lt 1.0){
+  $xf = New-Object System.Windows.Media.ScaleTransform($scale, $scale)
+  $target = New-Object System.Windows.Media.TransformedBitmap($frame, $xf)
+}
+$enc = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder
+$enc.QualityLevel = 90
+$enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($target))
+$stream = [System.IO.File]::Create($Out)
+try { $enc.Save($stream) } finally { $stream.Close() }
+'''
+
+
+def transcode_heic(path, max_side=2048):
+    """Convert one HEIC/HEIF file to JPEG bytes via the Windows imaging codec."""
+    script = pathlib.Path(tempfile.gettempdir()) / 'wechatagent-heic.ps1'
+    output = pathlib.Path(tempfile.gettempdir()) / ('wechatagent-heic-%d.jpg' % os.getpid())
+    try:
+        script.write_text(HEIC_SCRIPT, encoding='utf-8')
+        subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', str(script), '-In', str(path), '-Out', str(output), '-MaxSide', str(max_side)],
+            capture_output=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if output.is_file() and output.stat().st_size > 0:
+            return output.read_bytes()
+        return None
+    except Exception:
+        return None
+    finally:
+        try:
+            output.unlink()
+        except OSError:
+            pass
+
+
+def resolve_file_image(descriptor, account):
+    """Read a picture that arrived as a WeChat file message (no encryption, no thumb)."""
+    from wechat_files import locate_file
+    name = descriptor.get('name') or ''
+    size = descriptor.get('size')
+    md5 = (descriptor.get('md5') or '').lower()
+    if not SAFE_FILE_NAME.fullmatch(name) or name != os.path.basename(name):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    # The message usually arrives while WeChat is still writing the file.
+    path = None
+    for attempt in range(3):
+        path = locate_file(account, name, size, md5)
+        if path:
+            break
+        if attempt < 2:
+            time.sleep(0.5)
+    if not path:
+        raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
+    raw = pathlib.Path(path).read_bytes()
+    if len(raw) != size:
+        raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
+    if pathlib.Path(path).suffix.casefold() in ('.heic', '.heif'):
+        raw = transcode_heic(path) or raw
+    return normalize_image(raw, max_side=2048)
+
+
 def resolve(descriptor):
     reader = reader_api.Reader(ROOT, metadata_readonly=True)
     talker = descriptor['talker']
     if not reader.image_talker_allowed(talker):
         raise RuntimeError('IMAGE_CONVERSATION_NOT_ALLOWED')
+    if descriptor.get('kind') == 'file-image':
+        return resolve_file_image(descriptor, reader.account)
     row = reader.image_row(talker, descriptor)
     content = row['imageXml']
     if row['localType'] == 47:

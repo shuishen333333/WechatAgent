@@ -11,6 +11,71 @@ import xml.etree.ElementTree as ET
 FILE_TYPE = (6 << 32) | 49
 MAX_FILE_BYTES = 50 * 1024 * 1024
 ID = re.compile(r'^[a-f0-9]{64}$')
+# Plain-text files can be inlined into a chat turn without any office tooling.
+TEXT_FILE_NAME = re.compile(r'\.(?:txt|md|markdown|csv|tsv|json|log|yaml|yml|ini|cfg|py|js|mjs|ts|html?|xml|java|c|cc|cpp|h|cs|sql|sh|bat|ps1)$', re.I)
+MAX_TEXT_FILE_BYTES = 256 * 1024
+
+
+def locate_file(account, name, size, md5='', deadline_seconds=6.0, max_visited=20000):
+    """Find one downloaded file by exact name+size (+md5) inside WeChat's own folders.
+
+    WeChat stores attachments as <root>/<YYYY-MM>/<name>; walking newest months first
+    keeps a long history from starving the scan before it reaches today's file.
+    """
+    account = pathlib.Path(account)
+    if not safe_file_name(name) or not isinstance(size, int) or not 0 <= size <= MAX_FILE_BYTES:
+        return None
+    roots = [account / 'msg' / 'file', account / 'FileStorage' / 'File']
+    folders = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        folders.append((root, 1))
+        try:
+            months = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+        except OSError:
+            months = []
+        folders.extend((month, 2) for month in months[:12])
+    folders.extend((root, 4) for root in roots if root.is_dir())
+    deadline = time.monotonic() + deadline_seconds
+    visited = 0
+    for folder, depth_limit in folders:
+        if not folder.is_dir():
+            continue
+        stack = [(folder, 0)]
+        while stack and visited < max_visited and time.monotonic() < deadline:
+            current, depth = stack.pop()
+            try:
+                entries = list(os.scandir(current))
+            except OSError:
+                continue
+            for entry in entries:
+                visited += 1
+                if visited > max_visited or time.monotonic() >= deadline:
+                    break
+                try:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        if depth < depth_limit:
+                            stack.append((pathlib.Path(entry.path), depth + 1))
+                        continue
+                    if entry.name.casefold() != name.casefold():
+                        continue
+                    if entry.stat().st_size != size:
+                        continue
+                    item = pathlib.Path(entry.path)
+                    if not item.resolve().is_relative_to(account.resolve()):
+                        continue
+                    if md5:
+                        digest, _ = hashes(item)
+                        if digest != md5:
+                            continue
+                    return item
+                except OSError:
+                    continue
+    return None
+
 
 def safe_file_name(value):
     if not isinstance(value, str) or not 1 <= len(value) <= 180:
