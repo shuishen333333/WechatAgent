@@ -7,7 +7,9 @@ import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -91,8 +93,53 @@ def resolve_file_image(descriptor, account):
                     continue
                 if md5 and hashlib.md5(raw).hexdigest() != md5:
                     continue
+                if pathlib.Path(entry.path).suffix.casefold() in ('.heic', '.heif'):
+                    raw = transcode_heic(entry.path) or raw
                 return normalize_image(raw)
     raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
+
+
+# iPhones hand over HEIC, which Pillow cannot decode without an extra wheel.
+# Windows already ships an HEIF decoder, so reuse it through WIC instead.
+HEIC_SCRIPT = r'''
+param([string]$In,[string]$Out,[int]$MaxSide)
+Add-Type -AssemblyName PresentationCore | Out-Null
+$dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create([Uri]$In, 'None', 'OnLoad')
+$frame = $dec.Frames[0]
+$scale = 1.0
+if($frame.PixelWidth -gt $MaxSide){ $scale = $MaxSide / $frame.PixelWidth }
+$target = $frame
+if($scale -lt 1.0){
+  $xf = New-Object System.Windows.Media.ScaleTransform($scale, $scale)
+  $target = New-Object System.Windows.Media.Imaging.TransformedBitmap($frame, $xf)
+}
+$enc = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder
+$enc.QualityLevel = 90
+$enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($target))
+$stream = [System.IO.File]::Create($Out)
+try { $enc.Save($stream) } finally { $stream.Close() }
+'''
+
+
+def transcode_heic(path, max_side=1600):
+    """Convert one HEIC/HEIF file to JPEG bytes via the Windows imaging codec."""
+    script = pathlib.Path(tempfile.gettempdir()) / 'wechatagent-heic.ps1'
+    output = pathlib.Path(tempfile.gettempdir()) / ('wechatagent-heic-%d.jpg' % os.getpid())
+    try:
+        script.write_text(HEIC_SCRIPT, encoding='utf-8')
+        result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+            '-File', str(script), '-In', str(path), '-Out', str(output), '-MaxSide', str(max_side)],
+            capture_output=True, timeout=25, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        if output.is_file() and output.stat().st_size > 0:
+            return output.read_bytes()
+        return None
+    except Exception:
+        return None
+    finally:
+        try:
+            output.unlink()
+        except OSError:
+            pass
 
 
 def resolve(descriptor):

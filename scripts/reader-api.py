@@ -41,7 +41,7 @@ from wechat_group_bindings import GroupBindings, group_username
 
 # Pictures sent as WeChat file messages keep their original bytes once the
 # desktop client has downloaded the file; treat those as ordinary images.
-IMAGE_FILE_NAME = re.compile(r'\.(?:jpg|jpeg|png|gif|webp|bmp)$', re.I)
+IMAGE_FILE_NAME = re.compile(r'\.(?:jpg|jpeg|png|gif|webp|bmp|heic|heif)$', re.I)
 MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
 
 PAT_TYPE = (62 << 32) | 49
