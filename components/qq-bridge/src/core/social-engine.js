@@ -121,6 +121,7 @@ export class SocialEngine {
     this.pendingDirect = new Set(); this.sentAt = new Map();
     // Short "reading it" acknowledgement so attachments are not met with silence.
     this.readAckAt = new Map(); this.readAckText = typeof readAckText === 'string' ? readAckText : '';
+    this.batchStarted = new Map();
     this.decisions = new Map();
     this.stickerSelect=stickerSelect;
     this.deliveryRetry={busyDelayMs:500,busyTimeoutMs:30000,maxBusyRetries:6,receiptDelayMs:1500,maxReceiptChecks:2,mediaDeadlineMs:45000,mediaCallTimeoutMs:10000,...deliveryRetry};
@@ -212,16 +213,30 @@ export class SocialEngine {
     if(message.interaction==='pat' && !this.patWaitUntil.has(key))this.patWaitUntil.set(key,Date.now()+this.batchMs);
     if (message.kind === 'group' && this.modeFor(key) === 'mention' && !direct) return;
     this.dirty.add(key);
-    if (direct && this.running.has(key)) { this.pendingDirect.add(key); return; }
-    if(direct&&this.workModeFor(key)==='assistant'){
-      this.pendingDirect.add(key);
-      if(!this.timers.has(key))this.timers.set(key,setTimeout(()=>{this.timers.delete(key);this.pendingDirect.delete(key);void this.#run(key,message,true);},this.assistantBatchMs));
+    if (this.running.has(key)) { this.pendingDirect.add(key); return; }
+    // Both modes now merge: private and group alike wait for a quiet gap, so a
+    // picture followed by its instruction is handled as one turn.
+    const assistantMode = this.workModeFor(key)==='assistant';
+    if (assistantMode) this.pendingDirect.add(key);
+    this.#queueRun(key, message, direct, assistantMode ? this.assistantBatchMs : this.batchMs);
+  }
+
+  #queueRun(key, message, direct, windowMs) {
+    const now = Date.now();
+    const started = this.batchStarted.get(key) ?? now;
+    // Do not let a chatty sender starve the reply: give up merging after 3 windows.
+    if (windowMs <= 0 || now - started >= windowMs * 3) {
+      clearTimeout(this.timers.get(key)); this.timers.delete(key); this.batchStarted.delete(key);
+      this.pendingDirect.delete(key);
+      void this.#run(key, message, direct);
       return;
     }
-    if (direct) { clearTimeout(this.timers.get(key)); this.timers.delete(key); void this.#run(key, message, true); }
-    else if (!this.timers.has(key)) this.timers.set(key, setTimeout(() => {
-      this.timers.delete(key); void this.#run(key, message, false);
-    }, this.batchMs));
+    this.batchStarted.set(key, started);
+    clearTimeout(this.timers.get(key));
+    this.timers.set(key, setTimeout(() => {
+      this.timers.delete(key); this.batchStarted.delete(key); this.pendingDirect.delete(key);
+      void this.#run(key, message, direct);
+    }, windowMs));
   }
 
   replay(key) {
