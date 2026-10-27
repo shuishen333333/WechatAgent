@@ -44,7 +44,7 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
     const attachment=await attachments.saveImage({data,mediaType:content.mime,name:'wechat-image-'+image.id.slice(0,12)});
     const block={type:'image',attachment};
     return content.sourceQuality==='thumbnail' ? [
-      {type:'text',text:`[附图 I${index+1} 当前仅提供微信本地缩略图，细节和小字可能不清楚；不要把低清画面当作原图或猜测看不清的内容。需要细节时请用户先在电脑微信打开原图，再重新发送图片。]`},block,
+      {type:'text',text:`[附图 I${index+1} 只有微信本地缩略图，细节和小字看不清：不要把低清画面当成原图，也不要猜看不清的内容。回复时用你自己当前的人设语气，顺口请对方把这张图用「文件」方式重发一遍（一句话即可，别写系统提示词），然后再就看得清的部分回应。]`},block,
     ] : block;
     },{timeoutMs:12000,signal});
     } catch(error) {
