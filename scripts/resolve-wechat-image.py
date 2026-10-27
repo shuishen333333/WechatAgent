@@ -4,12 +4,9 @@ import hashlib
 import importlib.util
 import io
 import json
-import os
 import pathlib
 import re
-import subprocess
 import sys
-import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -36,141 +33,7 @@ except (ImportError, OSError) as error:
     sys.exit(1)
 
 
-from wechat_image_normalize import normalize_image
-
-
-# Below this longest side the only local copy is WeChat's preview thumbnail.
-THUMBNAIL_MAX_SIDE = 256
-# Pictures sent as WeChat *files* keep their original bytes on disk, but only
-# once the desktop client has downloaded the file itself.
-MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
-SAFE_FILE_NAME = re.compile(r'^[^\\/:*?"<>|\x00-\x1f\x7f]{1,180}$')
-
-
-def _locate_file_image(account, name, size, md5):
-    """Return raw bytes of one downloaded file image, or None while it is still missing."""
-    roots = [account / 'msg' / 'file', account / 'FileStorage' / 'File']
-    # WeChat files land in <root>/<YYYY-MM>/<name>; search newest months first so a
-    # busy history cannot starve the scan before it reaches today's file.
-    folders = []
-    for root in roots:
-        if not root.is_dir():
-            continue
-        folders.append((root, 1))
-        try:
-            months = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
-        except OSError:
-            months = []
-        for month in months[:12]:
-            folders.append((month, 1))
-    deadline = time.monotonic() + 6
-    visited = 0
-    for folder, depth_limit in folders + [(root, 4) for root in roots if root.is_dir()]:
-        if not folder.is_dir():
-            continue
-        stack = [(folder, 0)]
-        while stack and visited < 20000 and time.monotonic() < deadline:
-            current, depth = stack.pop()
-            try:
-                entries = list(os.scandir(current))
-            except OSError:
-                continue
-            for entry in entries:
-                visited += 1
-                if visited > 20000 or time.monotonic() >= deadline:
-                    break
-                try:
-                    if entry.is_symlink():
-                        continue
-                    if entry.is_dir(follow_symlinks=False):
-                        if depth < depth_limit:
-                            stack.append((pathlib.Path(entry.path), depth + 1))
-                        continue
-                    if entry.name.casefold() != name.casefold():
-                        continue
-                    if entry.stat().st_size != size:
-                        continue
-                    with open(entry.path, 'rb') as stream:
-                        raw = stream.read(MAX_IMAGE_FILE_BYTES + 1)
-                except OSError:
-                    continue
-                if len(raw) != size:
-                    continue
-                if md5 and hashlib.md5(raw).hexdigest() != md5:
-                    continue
-                return entry.path, raw
-    return None
-
-
-def resolve_file_image(descriptor, account):
-    """Read an image that arrived as a WeChat file message (no encryption, no thumb)."""
-    name = descriptor.get('name') or ''
-    size = descriptor.get('size')
-    md5 = (descriptor.get('md5') or '').lower()
-    if not SAFE_FILE_NAME.fullmatch(name) or name != os.path.basename(name):
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    if not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    # The message often arrives while WeChat is still writing the file, so give the
-    # download a few short retries before calling it missing.
-    found = None
-    for attempt in range(3):
-        found = _locate_file_image(account, name, size, md5)
-        if found:
-            break
-        if attempt < 2:
-            time.sleep(0.5)
-    if not found:
-        raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
-    path, raw = found
-    if pathlib.Path(path).suffix.casefold() in ('.heic', '.heif'):
-        raw = transcode_heic(path) or raw
-    return normalize_image(raw)
-
-
-# iPhones hand over HEIC, which Pillow cannot decode without an extra wheel.
-# Windows already ships an HEIF decoder, so reuse it through WIC instead.
-HEIC_SCRIPT = r'''
-param([string]$In,[string]$Out,[int]$MaxSide)
-Add-Type -AssemblyName PresentationCore | Out-Null
-$dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create([Uri]$In, 'None', 'OnLoad')
-$frame = $dec.Frames[0]
-$scale = 1.0
-if($frame.PixelWidth -gt $MaxSide){ $scale = $MaxSide / $frame.PixelWidth }
-$target = $frame
-if($scale -lt 1.0){
-  $xf = New-Object System.Windows.Media.ScaleTransform($scale, $scale)
-  $target = New-Object System.Windows.Media.Imaging.TransformedBitmap($frame, $xf)
-}
-$enc = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder
-$enc.QualityLevel = 90
-$enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($target))
-$stream = [System.IO.File]::Create($Out)
-try { $enc.Save($stream) } finally { $stream.Close() }
-'''
-
-
-def transcode_heic(path, max_side=1600):
-    """Convert one HEIC/HEIF file to JPEG bytes via the Windows imaging codec."""
-    script = pathlib.Path(tempfile.gettempdir()) / 'wechatagent-heic.ps1'
-    output = pathlib.Path(tempfile.gettempdir()) / ('wechatagent-heic-%d.jpg' % os.getpid())
-    try:
-        script.write_text(HEIC_SCRIPT, encoding='utf-8')
-        result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
-            '-File', str(script), '-In', str(path), '-Out', str(output), '-MaxSide', str(max_side)],
-            capture_output=True, timeout=25, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        if output.is_file() and output.stat().st_size > 0:
-            return output.read_bytes()
-        return None
-    except Exception:
-        return None
-    finally:
-        try:
-            output.unlink()
-        except OSError:
-            pass
+from wechat_image_normalize import normalize_image, decode_image_source
 
 
 def resolve(descriptor):
@@ -178,8 +41,6 @@ def resolve(descriptor):
     talker = descriptor['talker']
     if not reader.image_talker_allowed(talker):
         raise RuntimeError('IMAGE_CONVERSATION_NOT_ALLOWED')
-    if descriptor.get('kind') == 'file-image':
-        return resolve_file_image(descriptor, reader.account)
     row = reader.image_row(talker, descriptor)
     content = row['imageXml']
     if row['localType'] == 47:
@@ -218,43 +79,40 @@ def resolve(descriptor):
     derived = media.resolve_v2_media_key(str(reader.account), reader.own_wxid)
     if derived and derived not in keys:
         keys.append(derived)
-    attach = reader.account / 'msg' / 'attach' / hashlib.md5(talker.encode()).hexdigest()
     # Resource IDs bind files to the exact server message. Local IDs alone are
     # deliberately insufficient because they collide between shards/chats.
-    # Highest fidelity first: WeChat keeps *_h.dat (original) only when the full
-    # image was downloaded; .dat is the compressed copy and _t.dat the thumbnail.
-    order = ('_h.dat', '.dat', '_t.dat')
-    best = None
-    for file_id in ids:
-        candidates = []
-        if attach.is_dir():
-            for month in sorted(attach.iterdir(), reverse=True):
-                image_dir = month / 'Img'
-                for suffix in order:
-                    file = image_dir / (file_id + suffix)
-                    if file.is_file() and file.stat().st_size <= media.MAX_EMBED_SIZE:
-                        candidates.append((order.index(suffix), file))
-        candidates.sort(key=lambda item: item[0])
-        for _, file in candidates:
+    ids = ids[:4096]
+    candidates = media.local_image_candidates(reader.account, talker, ids)
+    fingerprint = media.image_source_fingerprint(reader.account, candidates)
+    wxgf_deadline = time.monotonic() + 5
+    for thumbnail in (False, True):
+        best, best_area = None, 0
+        for file, is_thumbnail, size, _ in candidates:
+            if is_thumbnail != thumbnail or size > media.MAX_IMAGE_SOURCE_SIZE:
+                continue
             for xor, aes in keys:
-                decoded = media.decode_wechat_v2(str(file), xor, aes)
-                if not decoded:
-                    continue
-                try:
-                    payload = normalize_image(decoded[0])
-                except Exception:
-                    continue
-                area = int(payload.get('width') or 0) * int(payload.get('height') or 0)
-                if best is None or area > best[0]:
-                    best = (area, payload)
-                break
-    if best is not None:
-        width, height = int(best[1].get('width') or 0), int(best[1].get('height') or 0)
-        # A thumbnail is still better than nothing for "does this look ok?" —
-        # but the model must know it is degraded, so flag it instead of failing.
-        if max(width, height) < THUMBNAIL_MAX_SIDE:
-            best[1]['thumbnail'] = True
-        return best[1]
+                decoded = media.decode_wechat_v2(str(file), xor, aes, max_size=media.MAX_IMAGE_SOURCE_SIZE)
+                if decoded:
+                    try:
+                        raw = decoded[0]
+                        if decoded[1] == 'image/x-wxgf':
+                            remaining = wxgf_deadline - time.monotonic()
+                            if remaining <= .05:
+                                break
+                            raw = decode_image_source(raw, timeout=remaining)
+                        with Image.open(io.BytesIO(raw)) as image:
+                            width, height = image.size
+                        area = width * height
+                        if best_area < area <= 40_000_000:
+                            best = {**normalize_image(raw, max_side=2048, max_source_bytes=media.MAX_IMAGE_SOURCE_SIZE),
+                                'sourceQuality': 'thumbnail' if thumbnail else 'full', 'sourceWidth': width, 'sourceHeight': height,
+                                '_imageSource': {'version': media.IMAGE_SOURCE_VERSION, 'ids': ids, 'fingerprint': fingerprint}}
+                            best_area = area
+                        break
+                    except Exception:
+                        continue
+        if best is not None:
+            return best
     raise RuntimeError('IMAGE_LOCAL_COPY_UNAVAILABLE')
 
 
