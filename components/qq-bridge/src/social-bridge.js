@@ -34,6 +34,8 @@ if (sendPrivateTest && (allowedGroups.size !== 0 || allowedPrivate.size !== 1)) 
 if (allowedGroups.size + allowedPrivate.size === 0) console.warn('[Social] WeChat whitelist is empty; all messages will be denied');
 const log = (line) => console.log(new Date().toISOString(), line);
 const historyRoot=path.resolve(config.project_root??(config.search_policy_file?path.dirname(path.dirname(config.search_policy_file)):path.resolve(root,'../..')));
+// The packaged 0.4.1 build defines this; the published source tag does not.
+const nativeRoot=historyRoot;
 const historyAccount=activeReaderAccount(historyRoot);
 const baseHistoryStore=new HistoryStore(historyRoot,historyAccount.id||historyAccount.legacyId);
 const historyStore=scopeHistory(baseHistoryStore,(_key,row)=>row?.work_mode??'social');
