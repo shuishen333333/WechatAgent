@@ -23,7 +23,7 @@ export async function imageBlocks(ctx,root,conversationKey,images,provider,model
       : code==='IMAGE_FILE_NOT_DOWNLOADED'
         ? '电脑微信还没下载这个文件，可以请对方重发一次'
         : '';
-    return {type:'text',text:`[本轮附图 I${index+1} 读取失败，未提供画面；不要猜测内容。${advice?advice+'。':''}其余成功附图仍可使用。]`};
+    return {type:'text',text:`[本轮附图 I${index+1} 读取失败，未提供画面；不要猜测内容。${advice?advice+'。':''}请直接告诉对方没读到（一句话即可），不要说“已收到”“正在处理”之类没结果的客套。其余成功附图仍可使用。]`};
   };
   let info;
   try{info=await boundedTask(s=>llm.resolveModelInfo(provider,model,s),{timeoutMs,signal});}
