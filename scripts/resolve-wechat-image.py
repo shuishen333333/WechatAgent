@@ -47,17 +47,8 @@ MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024
 SAFE_FILE_NAME = re.compile(r'^[^\\/:*?"<>|\x00-\x1f\x7f]{1,180}$')
 
 
-def resolve_file_image(descriptor, account):
-    """Read an image that arrived as a WeChat file message (no encryption, no thumb)."""
-    name = descriptor.get('name') or ''
-    size = descriptor.get('size')
-    md5 = (descriptor.get('md5') or '').lower()
-    if not SAFE_FILE_NAME.fullmatch(name) or name != os.path.basename(name):
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    if not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
-    if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
-        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+def _locate_file_image(account, name, size, md5):
+    """Return raw bytes of one downloaded file image, or None while it is still missing."""
     roots = [account / 'msg' / 'file', account / 'FileStorage' / 'File']
     # WeChat files land in <root>/<YYYY-MM>/<name>; search newest months first so a
     # busy history cannot starve the scan before it reaches today's file.
@@ -107,10 +98,36 @@ def resolve_file_image(descriptor, account):
                     continue
                 if md5 and hashlib.md5(raw).hexdigest() != md5:
                     continue
-                if pathlib.Path(entry.path).suffix.casefold() in ('.heic', '.heif'):
-                    raw = transcode_heic(entry.path) or raw
-                return normalize_image(raw)
-    raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
+                return entry.path, raw
+    return None
+
+
+def resolve_file_image(descriptor, account):
+    """Read an image that arrived as a WeChat file message (no encryption, no thumb)."""
+    name = descriptor.get('name') or ''
+    size = descriptor.get('size')
+    md5 = (descriptor.get('md5') or '').lower()
+    if not SAFE_FILE_NAME.fullmatch(name) or name != os.path.basename(name):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if not isinstance(size, int) or not 0 < size <= MAX_IMAGE_FILE_BYTES:
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    if md5 and not re.fullmatch(r'[a-f0-9]{32}', md5):
+        raise RuntimeError('IMAGE_FILE_DESCRIPTOR_INVALID')
+    # The message often arrives while WeChat is still writing the file, so give the
+    # download a few short retries before calling it missing.
+    found = None
+    for attempt in range(3):
+        found = _locate_file_image(account, name, size, md5)
+        if found:
+            break
+        if attempt < 2:
+            time.sleep(0.5)
+    if not found:
+        raise RuntimeError('IMAGE_FILE_NOT_DOWNLOADED')
+    path, raw = found
+    if pathlib.Path(path).suffix.casefold() in ('.heic', '.heif'):
+        raw = transcode_heic(path) or raw
+    return normalize_image(raw)
 
 
 # iPhones hand over HEIC, which Pillow cannot decode without an extra wheel.
