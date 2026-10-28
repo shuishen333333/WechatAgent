@@ -31,7 +31,10 @@ export function selectStickerChoices(choices,text,seenIds,{labelCache=true,candi
   const score=item=>labelCache?item.tags?.filter(tag=>text.includes(tag)).length??0:0;
   const labelled=choices.filter(item=>labelCache&&cleanStickerLabel(item)).sort((a,b)=>score(b)-score(a));
   const visible=choices.filter(item=>seenIds.has(item.id)&&!labelled.some(other=>other.id===item.id));
-  const unknown=requested&&!labelled.length&&!visible.length?choices.slice(0,2):[];
+  // Without labels there was nothing to offer unless the user literally said "表情".
+  // Hand over a couple of slot candidates anyway so the model can pick one when the
+  // mood fits; labelled/seen entries still win the ordering above.
+  const unknown=(requested||!labelled.length)&&!visible.length?choices.filter(item=>!labelled.some(other=>other.id===item.id)).slice(0,2):[];
   const unique=new Set();
   return [...visible,...labelled,...unknown].filter(item=>{if(unique.has(item.id))return false;unique.add(item.id);return true;}).slice(0,limit);
 }
