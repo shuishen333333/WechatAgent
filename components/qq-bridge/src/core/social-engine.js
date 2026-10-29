@@ -368,6 +368,7 @@ export class SocialEngine {
           // a blocking vision request. Explicit image requests may preview two.
           if(requestedSticker&&!cleanStickerLabel(item)&&!decisionImages.some(image=>image.id===item.id)&&decisionImages.filter(image=>!incomingImages.some(input=>input.id===image.id)).length<2)decisionImages.push({id:item.id,kind:'sticker'});
         }
+        stickerChoices=stickerChoices.filter(item=>cleanStickerLabel(item)||decisionImages.some(image=>image.id===item.id));
         stickerChoices.forEach((item,i)=>{stickerRefs['S'+(i+1)]=item.id;});
         prompt+=stickerCandidatePrompt(stickerChoices,decisionImages);
       }
