@@ -2,6 +2,7 @@
 import hashlib,io,json,os,pathlib,re,threading,time,uuid
 from PIL import Image,ImageDraw
 from wechat_image_normalize import normalize_image
+from wechat_sticker_send import native_gif_bytes
 
 MAX_ENTRIES=50
 MAX_PENDING=64
@@ -108,7 +109,9 @@ class StickerCollection:
         from wechat_meme_library import meme_import_allowed
         can_store=lambda:self.active() and meme_import_allowed(self.policy(),key) if external else self.can_collect(key)
         if not can_store():return False
-        if not isinstance(raw,bytes) or not 0<len(raw)<=MAX_FILE or not raw.startswith((b'GIF87a',b'GIF89a')) or not valid_md5(source_md5):raise RuntimeError('STICKER_COLLECTION_RESOURCE_INVALID')
+        if not isinstance(raw,bytes) or not 0<len(raw)<=MAX_FILE or not valid_md5(source_md5):raise RuntimeError('STICKER_COLLECTION_RESOURCE_INVALID')
+        # 微信里的静态表情是 JPEG/PNG/WEBP；池子统一存 GIF，不转换这些就永远进不来。
+        raw=native_gif_bytes(raw)
         with Image.open(io.BytesIO(raw)) as image:
             if image.format!='GIF' or not 0<image.width<=4096 or not 0<image.height<=4096:raise RuntimeError('STICKER_COLLECTION_RESOURCE_INVALID')
             width,height=image.size;animated=getattr(image,'n_frames',1)>1
