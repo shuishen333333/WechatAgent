@@ -79,6 +79,8 @@ export function validateConsoleConfig(config, root) {
   if (config.social?.read_ack_text !== undefined
     && (typeof config.social.read_ack_text !== 'string' || !config.social.read_ack_text.trim() || config.social.read_ack_text.length > 200))
     throw fault('收到附件时的提示语必须是 1–200 字。');
+  if (config.social?.read_ack_stickers !== undefined && typeof config.social.read_ack_stickers !== 'boolean')
+    throw fault('收到表情包是否回执必须是开关。');
   for (const [key, value] of Object.entries(config.persona.chats ?? {})) {
     if (!/^wechat:(private|group):[1-9]\d*$/.test(key) || !roleName(value)) throw fault('聊天人格映射无效。');
   }

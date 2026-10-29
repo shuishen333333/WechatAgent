@@ -114,7 +114,7 @@ export function replyCooldown(recent, now, { intervalMs, maxPerMinute, maxPerTen
 /** Batched social decisions; one in-flight decision per conversation. */
 export class SocialEngine {
   constructor({ buffer, decide, send, roleFor = () => '', personaNameFor = () => '',workModeFor=()=> 'social', wakeWords = [], mode = 'hybrid',
-    assistantBatchMs=650,readAckText='收到，正在读取…',assistantChatOnly=false,maxTextPartsFor=()=>2,notebookEnabledFor=()=>false,batchMs = 3000, minIntervalMs = 15000, privateMinIntervalMs = 1000,
+    assistantBatchMs=650,readAckText='收到，正在读取…',readAckStickers=false,assistantChatOnly=false,maxTextPartsFor=()=>2,notebookEnabledFor=()=>false,batchMs = 3000, minIntervalMs = 15000, privateMinIntervalMs = 1000,
     maxPerMinute = 3, maxPerTenMinutes = 10, stickerChoicesFor = async()=>[], sendSticker,
     stickerPolicyFor=()=>({enabled:true,labelCache:true}),stickerLabelsFor=async()=>[],saveStickerLabels=async()=>{},
     assistantAccess=()=>false,assistantControl,modeFor,searchFor=async()=>null,modelSearchReady=async()=>false,searchPolicyFor=()=>SEARCH_DEFAULTS,stickerSelect=selectStickerChoices,deliveryRetry={},connection=null,log = () => {} }) {
@@ -128,6 +128,8 @@ export class SocialEngine {
     this.pendingDirect = new Set(); this.sentAt = new Map();
     // Short "reading it" acknowledgement so attachments are not met with silence.
     this.readAckAt = new Map(); this.readAckText = typeof readAckText === 'string' ? readAckText : '';
+    // 表情包不是"文件"，默认不触发回执；打开后连表情包也回一句。
+    this.readAckStickers = readAckStickers === true;
     this.batchStarted = new Map(); this.awakeUntil = new Map();
     this.decisions = new Map();
     this.stickerSelect=stickerSelect;
@@ -282,7 +284,8 @@ export class SocialEngine {
       const unread=this.unreadFor(key,20);
       // Merge window is over: acknowledge attachments now, right before the long
       // model/tool work, so the sender is not left in silence.
-      if (direct && this.readAckText && unread.some(row=>row.files?.length || row.images?.length)) {
+      const ackWanted=unread.some(row=>row.files?.length || row.images?.some(image=>this.readAckStickers || image.kind!=='sticker'));
+      if (direct && this.readAckText && ackWanted) {
         const now = Date.now(), last = this.readAckAt.get(key) ?? 0;
         if (now - last > 8000) {
           this.readAckAt.set(key, now);
