@@ -169,7 +169,7 @@ class StickerCollection:
                 try:self.resource_from(state,digest,key,image_id)
                 except (PermissionError,RuntimeError,OSError):continue
                 state['aliases'][image_id]={'digest':digest,'key':key}
-                result.append({'id':image_id,'receivedAt':item['receivedAt'],'sourceMd5':item['sourceMd5'],'sourceMd5s':item.get('sourceMd5s',[item['sourceMd5']]),'nativeMd5':item['fields']['md5'],'origin':'sticker-pool',**({'manualLabel':item['manualLabel']} if item.get('manualLabel') else {})})
+                result.append({'id':image_id,'receivedAt':item['receivedAt'],'sourceMd5':item['sourceMd5'],'sourceMd5s':item.get('sourceMd5s',[item['sourceMd5']]),'nativeMd5':item['fields']['md5'],'origin':'sticker-pool','manual':item.get('manual') is True,**({'manualLabel':item['manualLabel']} if item.get('manualLabel') else {})})
                 if len(result)>=limit:break
             while len(state['aliases'])>4096:state['aliases'].pop(next(iter(state['aliases'])))
             if result:self.write(state)
