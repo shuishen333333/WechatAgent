@@ -26,10 +26,12 @@ class StickerManager:
         self.active()
         with self.pool.lock:
             state=self.pool.read();items=[]
+            order=sorted(state['entries'],key=lambda digest:state['entries'][digest].get('receivedAt',0))
+            seq={digest:index+1 for index,digest in enumerate(order)}
             for digest,item in reversed(list(state['entries'].items())):
                 label=self.label(item)
-                items.append({'id':digest,'name':item.get('name') or label['description'] or '聊天收集的表情 '+digest[:6],**label,
-                              'manual':item.get('manual') is True,'animated':item.get('animated',False),'bytes':item['fields']['len'],
+                items.append({'id':digest,'seq':seq[digest],'name':item.get('name') or label['description'] or '聊天收集的表情 '+digest[:6],**label,
+                              'manual':item.get('manual') is True,'priority':item.get('priority') is True,'animated':item.get('animated',False),'bytes':item['fields']['len'],
                               'width':item['fields']['width'],'height':item['fields']['height'],'addedAt':item['receivedAt']})
             self.active()
             return {'scope':self.pool.account_key,'revision':self.revision(state),'limit':MAX_ENTRIES,'count':len(items),
