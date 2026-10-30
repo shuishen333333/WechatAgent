@@ -81,6 +81,8 @@ export function validateConsoleConfig(config, root) {
     throw fault('收到附件时的提示语必须是 1–200 字。');
   if (config.social?.read_ack_stickers !== undefined && typeof config.social.read_ack_stickers !== 'boolean')
     throw fault('收到表情包是否回执必须是开关。');
+  if (config.social?.reply_bias !== undefined && !['eager', 'balanced', 'strict'].includes(config.social.reply_bias))
+    throw fault('回复倾向只能是 eager、balanced 或 strict。');
   for (const [key, value] of Object.entries(config.persona.chats ?? {})) {
     if (!/^wechat:(private|group):[1-9]\d*$/.test(key) || !roleName(value)) throw fault('聊天人格映射无效。');
   }
