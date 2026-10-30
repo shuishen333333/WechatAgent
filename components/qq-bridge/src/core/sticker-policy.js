@@ -38,9 +38,8 @@ export function selectStickerChoices(choices,text,seenIds,{labelCache=true,candi
   const unique=new Set();
   const merged=[...visible,...labelled,...unknown].filter(item=>{if(unique.has(item.id))return false;unique.add(item.id);return true;});
   if(!preferOfficial)return merged.slice(0,limit);
-  // 优先官方图库：手动添加/导入的表情排前面；末尾仍留一张聊天收集的，
-  // 这样官方素材都不合适时还有得挑。
-  const official=merged.filter(item=>item.manual),rest=merged.filter(item=>!item.manual);
+  // 优先使用被标记为「优先」的表情；末尾仍留一张没标记的兜底。
+  const official=merged.filter(item=>item.priority),rest=merged.filter(item=>!item.priority);
   if(!official.length||!rest.length)return merged.slice(0,limit);
   return [...official.slice(0,Math.max(1,limit-1)),...rest.slice(0,1)].slice(0,limit);
 }

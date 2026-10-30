@@ -1056,6 +1056,7 @@ def serve(reader, port, token):
                     if self.path=='/api/v1/stickers/manage/import':result=manager.import_image(body)
                     elif self.path=='/api/v1/stickers/manage/edit':result=manager.change(body)
                     elif self.path=='/api/v1/stickers/manage/delete':result=manager.change(body,remove=True)
+                    elif self.path=='/api/v1/stickers/manage/priority':result=manager.priority(body)
                     else:raise ManagerError('STICKER_MANAGER_NOT_FOUND',404)
                     self.respond(result)
                 except ManagerError as error:self.respond({'error':error.code},error.status)

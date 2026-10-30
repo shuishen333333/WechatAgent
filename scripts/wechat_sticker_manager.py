@@ -110,3 +110,16 @@ class StickerManager:
             state['review']=None;self.pool.write(state)
             if remove:self.pool.safe(self.pool.folder/(digest+'.gif')).unlink(missing_ok=True)
         return self.listing()
+    def priority(self,body):
+        """Mark one sticker as preferred; preferred stickers are offered first."""
+        with self.pool.lock:
+            state=self.pool.read();self.check(body,state);digest=body.get('id')
+            if not isinstance(digest,str) or not HEX.fullmatch(digest):raise ManagerError('STICKER_MANAGER_INVALID')
+            item=state['entries'].get(digest)
+            if not item:raise ManagerError('STICKER_MANAGER_NOT_FOUND',404)
+            value=body.get('priority')
+            if not isinstance(value,bool):raise ManagerError('STICKER_MANAGER_INVALID')
+            if value:item['priority']=True
+            else:item.pop('priority',None)
+            self.pool.write(state)
+        return self.listing()
