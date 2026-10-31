@@ -31,7 +31,7 @@ class StickerManager:
             for digest,item in reversed(list(state['entries'].items())):
                 label=self.label(item)
                 items.append({'id':digest,'seq':seq[digest],'name':item.get('name') or label['description'] or '聊天收集的表情 '+digest[:6],**label,
-                              'manual':item.get('manual') is True,'priority':item.get('priority') is True,'animated':item.get('animated',False),'bytes':item['fields']['len'],
+                              'manual':item.get('manual') is True,'disabled':item.get('disabled') is True,'animated':item.get('animated',False),'bytes':item['fields']['len'],
                               'width':item['fields']['width'],'height':item['fields']['height'],'addedAt':item['receivedAt']})
             self.active()
             return {'scope':self.pool.account_key,'revision':self.revision(state),'limit':MAX_ENTRIES,'count':len(items),
@@ -110,16 +110,16 @@ class StickerManager:
             state['review']=None;self.pool.write(state)
             if remove:self.pool.safe(self.pool.folder/(digest+'.gif')).unlink(missing_ok=True)
         return self.listing()
-    def priority(self,body):
-        """Mark one sticker as preferred; preferred stickers are offered first."""
+    def disabled(self,body):
+        """Turn one sticker off; disabled stickers are never offered to the model."""
         with self.pool.lock:
             state=self.pool.read();self.check(body,state);digest=body.get('id')
             if not isinstance(digest,str) or not HEX.fullmatch(digest):raise ManagerError('STICKER_MANAGER_INVALID')
             item=state['entries'].get(digest)
             if not item:raise ManagerError('STICKER_MANAGER_NOT_FOUND',404)
-            value=body.get('priority')
+            value=body.get('disabled')
             if not isinstance(value,bool):raise ManagerError('STICKER_MANAGER_INVALID')
-            if value:item['priority']=True
-            else:item.pop('priority',None)
+            if value:item['disabled']=True
+            else:item.pop('disabled',None)
             self.pool.write(state)
         return self.listing()

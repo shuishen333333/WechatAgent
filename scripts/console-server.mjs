@@ -512,7 +512,7 @@ export function createConsole({ root = projectRoot, port = 3210, runner, readerS
         if(route==='/api/fish-notebook/write'){if(!current.effectiveEnabled)throw fault('请先安装并为此聊天启用鱼的记事本插件。');const result=await plugin('/fish-notebook/write',{conversationKey:current.conversationKey});if(!result.ok)throw fault('日记暂未写成，请确认 DSH 已加载新版插件宿主后重试。',503);return reply(200,{ok:true});}
         throw fault('鱼的记事本已改为可选插件，请在插件配置中设置开关、时间和聊天范围。',410);
       }
-      if(['/api/sticker-manager/import','/api/sticker-manager/edit','/api/sticker-manager/delete','/api/sticker-manager/priority'].includes(route))return reply(200,await stickerManager('/'+route.split('/').at(-1),body));
+      if(['/api/sticker-manager/import','/api/sticker-manager/edit','/api/sticker-manager/delete','/api/sticker-manager/disabled'].includes(route))return reply(200,await stickerManager('/'+route.split('/').at(-1),body));
       if(/^\/api\/session-groups\/(create|rename|delete|move)$/.test(route))return reply(200,await plugin(route.slice('/api'.length),body));
       if(route==='/api/group-bindings'){
         const config=snapshot();

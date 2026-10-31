@@ -36,12 +36,8 @@ export function selectStickerChoices(choices,text,seenIds,{labelCache=true,candi
   // mood fits; labelled/seen entries still win the ordering above.
   const unknown=(requested||!labelled.length)&&!visible.length?choices.filter(item=>!labelled.some(other=>other.id===item.id)).slice(0,2):[];
   const unique=new Set();
-  const merged=[...visible,...labelled,...unknown].filter(item=>{if(unique.has(item.id))return false;unique.add(item.id);return true;});
-  if(!preferOfficial)return merged.slice(0,limit);
-  // 优先使用被标记为「优先」的表情；末尾仍留一张没标记的兜底。
-  const official=merged.filter(item=>item.priority),rest=merged.filter(item=>!item.priority);
-  if(!official.length||!rest.length)return merged.slice(0,limit);
-  return [...official.slice(0,Math.max(1,limit-1)),...rest.slice(0,1)].slice(0,limit);
+  // 禁用由池子过滤（candidates() 直接跳过 disabled），这里不再做来源排序。
+  return [...visible,...labelled,...unknown].filter(item=>{if(unique.has(item.id))return false;unique.add(item.id);return true;}).slice(0,limit);
 }
 export function splitStickerLabels(output){
   const text=String(output??'').trim();

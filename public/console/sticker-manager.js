@@ -19,7 +19,7 @@ export function createStickerManagerUI({api,modal,closeModal,escapeHtml:esc,icon
   const requestBody=()=>({scope:pool.scope,revision:pool.revision});
   function cards() {
     const items=pool.items.filter(item=>[item.name,item.description,...item.tags].join(' ').toLowerCase().includes(query.toLowerCase()));
-    return items.length?items.map(item=>`<article class="sticker-card"><button class="sticker-picture" data-sticker-preview="${item.id}" aria-label="预览：${esc(item.name)}"><img data-sticker-image="${item.id}" alt="${esc(item.description||item.name)}" width="160" height="160" loading="lazy"><span>${item.animated?'GIF 动图':'静态表情'}</span></button><div class="sticker-card-body"><h3 title="${esc(item.name)}"><span class="sticker-seq">#${item.seq}</span> ${esc(item.name)}</h3><p>${item.manual?'手动添加':'聊天收集'} · ${item.width} × ${item.height} · ${size(item.bytes)}</p><div class="sticker-tags">${item.tags.map(tag=>`<span>${esc(tag)}</span>`).join('')||'<span>可添加标签帮助选图</span>'}</div><div class="sticker-actions"><button class="button small${item.priority?' primary':''}" data-sticker-priority="${item.id}">${item.priority?'已优先':'优先'}</button><button class="button small" data-sticker-edit="${item.id}">编辑</button><button class="button small danger" data-sticker-delete="${item.id}" aria-label="删除：${esc(item.name)}">删除</button></div></div></article>`).join(''):
+    return items.length?items.map(item=>`<article class="sticker-card"><button class="sticker-picture" data-sticker-preview="${item.id}" aria-label="预览：${esc(item.name)}"><img data-sticker-image="${item.id}" alt="${esc(item.description||item.name)}" width="160" height="160" loading="lazy"><span>${item.animated?'GIF 动图':'静态表情'}</span></button><div class="sticker-card-body"><h3 title="${esc(item.name)}"><span class="sticker-seq">#${item.seq}</span> ${esc(item.name)}</h3><p>${item.manual?'手动添加':'聊天收集'} · ${item.width} × ${item.height} · ${size(item.bytes)}</p><div class="sticker-tags">${item.tags.map(tag=>`<span>${esc(tag)}</span>`).join('')||'<span>可添加标签帮助选图</span>'}</div><div class="sticker-actions"><button class="button small${item.disabled?'':' danger'}" data-sticker-disabled="${item.id}">${item.disabled?'启用':'禁用'}</button><button class="button small" data-sticker-edit="${item.id}">编辑</button><button class="button small danger" data-sticker-delete="${item.id}" aria-label="删除：${esc(item.name)}">删除</button></div></div></article>`).join(''):
       `<div class="sticker-empty">${icon('image')}<strong>${query?'没有匹配的表情包':'表情池还是空的'}</strong><p>${query?'换个名称或标签试试。':'从本地添加图片，或在允许的聊天中收集表情。'}</p>${query?'':'<button class="button primary" data-sticker-import>添加表情包</button>'}</div>`;
   }
   async function page() {
@@ -96,9 +96,9 @@ export function createStickerManagerUI({api,modal,closeModal,escapeHtml:esc,icon
       catch(cause){busy=false;const error=document.querySelector('#sticker-form-error');if(error){error.textContent=cause.message;error.hidden=false;}event.target.disabled=false;}
     });
   }
-  async function togglePriority(id) {
+  async function toggleDisabled(id) {
     const item=itemById(id);if(!item||!pool)return;
-    try{pool=await api('/api/sticker-manager/priority',{...requestBody(),id,priority:!item.priority});await renderPage();toast(item.priority?'已取消优先。':'已设为优先，候选会排前面。');}
+    try{pool=await api('/api/sticker-manager/disabled',{...requestBody(),id,disabled:!item.disabled});await renderPage();toast(item.disabled?'已启用，可再次被挑选。':'已禁用，不会再被挑选。');}
     catch(cause){toast(cause.message);}
   }
   async function preview(id) {
@@ -114,7 +114,7 @@ export function createStickerManagerUI({api,modal,closeModal,escapeHtml:esc,icon
     if(button.dataset.stickerEdit)editDialog(button.dataset.stickerEdit);
     if(button.dataset.stickerDelete)deleteDialog(button.dataset.stickerDelete);
     if(button.dataset.stickerPreview)void preview(button.dataset.stickerPreview);
-    if(button.dataset.stickerPriority)void togglePriority(button.dataset.stickerPriority);
+    if(button.dataset.stickerDisabled)void toggleDisabled(button.dataset.stickerDisabled);
   });
   return {page,mount};
 }

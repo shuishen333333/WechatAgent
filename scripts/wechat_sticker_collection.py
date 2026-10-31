@@ -164,6 +164,7 @@ class StickerCollection:
             ordered=sorted(state['entries'],key=lambda digest:(rank(state['entries'][digest]),key in state['entries'][digest].get('sources',{}),state['entries'][digest]['receivedAt']),reverse=True)
             for digest in ordered:
                 item=state['entries'][digest]
+                if item.get('disabled') is True:continue
                 if not self.eligible(item,key,policy):continue
                 image_id=self.bound_id(key,digest)
                 try:self.resource_from(state,digest,key,image_id)
