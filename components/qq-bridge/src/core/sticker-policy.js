@@ -9,7 +9,6 @@ export function validateStickerSettings(settings) {
   if(!settings||typeof settings!=='object'||Array.isArray(settings))throw Error('Invalid sticker settings');
   for(const key of ['enabled','labelCache','collectGroups','shareGroups','collectEnabled','shareEnabled','preferOfficial'])if(settings[key]!==undefined&&typeof settings[key]!=='boolean')throw Error('Invalid sticker '+key);
   if(settings.candidateLimit!==undefined)stickerCandidateLimit(settings.candidateLimit);
-  if(settings.gapSeconds!==undefined&&(!Number.isInteger(settings.gapSeconds)||settings.gapSeconds<0||settings.gapSeconds>86400))throw Error('表情最小间隔必须是 0–86400 的整数秒。');
   if(settings.chats!==undefined){
     if(!settings.chats||typeof settings.chats!=='object'||Array.isArray(settings.chats))throw Error('Invalid sticker chats');
     for(const [key,value] of Object.entries(settings.chats))if(!/^wechat:(private|group):[1-9]\d{0,15}$/.test(key)||!Number.isSafeInteger(Number(key.split(':').at(-1)))||typeof value!=='boolean')throw Error('Invalid sticker chat override');

@@ -71,7 +71,6 @@ const engine = new SocialEngine({ buffer,connection, roleFor: key => personaFor(
   readAckText: typeof config.social?.read_ack_text === 'string' ? config.social.read_ack_text : undefined,
   readAckStickers: config.social?.read_ack_stickers === true,
   replyBias: ['eager', 'balanced', 'strict'].includes(config.social?.reply_bias) ? config.social.reply_bias : 'balanced',
-  stickerGapMs: Math.max(0, Number(config.wechat?.stickers?.gapSeconds) || 0) * 1000,
   minIntervalMs: config.social?.min_interval_ms ?? 15000,
   privateMinIntervalMs: config.social?.private_min_interval_ms ?? 1000,
   maxPerMinute: config.social?.max_per_minute ?? 3,
