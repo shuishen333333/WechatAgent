@@ -61,7 +61,7 @@ export function createDshAccessUI({api,modal,closeModal,escapeHtml:esc,icon,stat
     function paint() {
       const proactive=form.querySelector('#chat-proactive'),assistant=form.querySelector('#chat-workMode').value==='assistant';proactive.disabled=session.saving||assistant;proactive.closest('.field').hidden=assistant;for(const field of form.querySelectorAll('[data-assistant-advanced]'))field.hidden=!assistant;proactive.parentElement.querySelector('small').textContent=assistant?'助手模式不会主动执行任务；主动聊天仅在聊天模式生效。':`总开关当前${w.proactive?.enabled?'开启':'关闭'}，还需符合回复设置中的时间与间隔。`;
       form.querySelector('#assistant-capability-profile').hidden=!assistant;
-      const inherited=assistant&&selected.mode==='native';for(const input of form.querySelectorAll('[data-dsh-kind]'))input.disabled=session.saving||inherited;
+      const inherited=assistant&&selected.mode==='native';for(const input of form.querySelectorAll('[data-dsh-kind],[data-group-select-all]'))input.disabled=session.saving||inherited;
       form.querySelector('#chat-capability-options').hidden=inherited;form.querySelector('#chat-capability-search').hidden=inherited;form.querySelector('#chat-selected-only').parentElement.hidden=inherited;
       if(inherited){form.querySelector('#chat-capability-empty').hidden=true;form.querySelector('#chat-catalog-status').textContent='使用所选 DSH 预设当前可用的工具与技能，执行时仍检查原生权限。原先逐项勾选的列表已保留，切回逐项授权即可继续使用。';}
       const accessPanel=form.querySelector('#chat-assistant-access');accessPanel.hidden=!assistant;
@@ -102,6 +102,13 @@ export function createDshAccessUI({api,modal,closeModal,escapeHtml:esc,icon,stat
         if(value===fallback[field]&&!Object.hasOwn(initial.access,field))delete selected[field];else selected[field]=value;
       }
       if(event.target.matches('#chat-capability-search,#chat-selected-only'))filter();
+      if(event.target.matches('[data-group-select-all]')){
+        const group=event.target.closest('[data-capability-group]'),on=event.target.checked;
+        const rows=[...group.querySelectorAll('[data-capability-row]')],shown=rows.filter(row=>!row.hidden),scope=shown.length?shown:rows;
+        for(const row of scope){const box=row.querySelector('input[data-dsh-kind]');if(!box||box.disabled)continue;box.checked=on;const kind=box.dataset.dshKind;selected[kind]=on?[...new Set([...selected[kind],box.value])]:selected[kind].filter(value=>value!==box.value);}
+        for(const kind of ['skills','tools']){const cell=form.querySelector(`[data-kind-count="${kind}"]`);if(cell)cell.textContent=selected[kind].length;}
+        filter();
+      }
       if(event.target.dataset.dshKind) {const kind=event.target.dataset.dshKind,name=event.target.value;selected[kind]=event.target.checked?[...selected[kind],name]:selected[kind].filter(value=>value!==name);form.querySelector(`[data-kind-count="${kind}"]`).textContent=selected[kind].length;filter();}
       const context=form.querySelector('#chat-context'),value=Number(context.value);context.setCustomValidity(context.value!==''&&value!==0&&(!Number.isSafeInteger(value)||value<4000)?'填 0 关闭，或输入至少 4,000 token；留空继承默认。':'');
       form.querySelector('#chat-discard-prompt').hidden=true;paint();
